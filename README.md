@@ -1,3 +1,16 @@
+  ██████╗ ███████╗████████╗     ███████╗███████╗████████╗
+ ██╔════╝ ██╔════╝╚══██╔══╝     ██╔════╝██╔════╝╚══██╔══╝
+ ██║  ███╗█████╗     ██║        ███████╗█████╗     ██║   
+ ██║   ██║██╔══╝     ██║        ╚════██║██╔══╝     ██║   
+ ╚██████╔╝███████╗   ██║        ███████║███████╗   ██║   
+  ╚═════╝ ╚══════╝   ╚═╝        ╚══════╝╚══════╝   ╚═╝   
+
+                   + +     + +
+
+Introduction: Hey everyone! This is a simple Visual Studio Code extension which has the main goal of reducing the annoyance of writing both getters and setters in .hpp and .cpp by automatically generating them in both the files.
+
+NOTE: STILL IN EALRY DEVELOPMENT
+
 # get-set-plus-plus README
 
 A VS Code extension that generates C++ getters and setters across `.hpp` and `.cpp` files.
@@ -9,11 +22,6 @@ A VS Code extension that generates C++ getters and setters across `.hpp` and `.c
 - Generates getter & setter declarations and definitions
 - Displays generated code in a new editor tab
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
-
-## Requirements
-
-
 
 ## Extension Settings
 
@@ -24,7 +32,7 @@ N/A
 
 ## Known Issues
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+Does not work as intended as it it stil in development
 
 ## Release Notes
 
