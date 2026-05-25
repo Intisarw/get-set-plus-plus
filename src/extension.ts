@@ -1,151 +1,181 @@
 import * as vscode from 'vscode';
+main
 
 // ---------------------------------------------------------------------------
 // Class name detection
 // ---------------------------------------------------------------------------
 
 /**
- * Scans backwards from `fromLine` in the document looking for a C++ class
- * declaration that encloses the user's selection.
- *
- * Handles all common forms:
- *   class Foo {
- *   class Foo : public Bar {
- *   class Foo final : public Bar, private Baz {
- *   class Foo        ← opening brace on the next line
- *
- * Returns the class name string, or null if none is found.
+
  */
 function detectClassName(
   document: vscode.TextDocument,
   fromLine: number
 ): string | null {
-  // Matches: class <Name> [final] [: ...] [{]
-  // Group 1 captures the class name identifier.
+
   const classPattern =
     /\bclass\s+([A-Za-z_]\w*)(?:\s+final)?\s*(?::\s*[\w\s,:<>*&]+?)?\s*\{?\s*$/;
 
   for (let i = fromLine; i >= 0; i--) {
-    const lineText = document.lineAt(i).text;
-    const match = classPattern.exec(lineText);
-    if (match) {
-      return match[1];
-    }
-  }
-  return null;
+
 }
 
-type SupportedType = 'int' | 'double' | 'bool' | 'std::string';
+// ---------------------------------------------------------------------------
+// Type system — expanded to support templates, pointers, custom types
+// ---------------------------------------------------------------------------
+
+/**
+ * How a type is treated for getter return type and setter parameter type:
+ *  primitive → passed/returned by value      (int, double, bool, ...)
+ *  string    → const std::string&            (std::string)
+ *  pointer   → raw pointer, unchanged        (Foo*, int*)
+ *  object    → const T& for anything else    (std::vector<T>, custom classes, ...)
+ */
+type TypeCategory = 'primitive' | 'string' | 'object' | 'pointer';
 
 type ParsedField = {
-	type: SupportedType;
-	name: string;
+  rawType: string;       // e.g. "std::vector<int>", "int*", "unsigned long"
+  name: string;
+  category: TypeCategory;
+};
+
+const PRIMITIVE_TYPES = new Set([
+  'int', 'double', 'float', 'char', 'bool', 'long', 'short',
+  'size_t', 'ptrdiff_t',
+  'uint8_t', 'uint16_t', 'uint32_t', 'uint64_t',
+  'int8_t',  'int16_t',  'int32_t',  'int64_t',
+  'unsigned int', 'unsigned long', 'unsigned char', 'unsigned short',
+  'long long', 'unsigned long long', 'long double',
+]);
+
+function classifyType(typeStr: string): TypeCategory {
+  if (typeStr.endsWith('*'))                              { return 'pointer';   }
+  if (typeStr === 'std::string' || typeStr === 'string') { return 'string';    }
+  if (PRIMITIVE_TYPES.has(typeStr))                      { return 'primitive'; }
+  return 'object';
 }
 
-const SUPPORTED_TYPES : SupportedType[] = ['int' , 'double', 'bool', 'std::string'];
+/**
+ * Parses a single C++ member variable declaration line.
+ * Handles: templates, pointers, custom types, multi-word primitives.
+ * Skips: const members, static members, lines that aren't declarations.
+ */
+function parseFieldLine(line: string): ParsedField | null {
+  let s = line.trim();
+  if (!s || !s.endsWith(';')) { return null; }
+  s = s.slice(0, -1).trim();
+  if (!s) { return null; }
 
-function parseFieldLine(line:string) : ParsedField | null {
-	//1)Trimming whitespace
-	let s = line.trim();
-	if(!s){
-		return null;
-	}
+  // Strip access specifiers at the start of a line (e.g. "public: int x")
+  s = s.replace(/^(public|protected|private)\s*:\s*/, '');
 
-	//2) Must end with ;
-	if(!s.endsWith(';')){
-		return null;
-	}
+  // Skip const member variables (they need only getters — future feature)
+  if (/^\s*const\b/.test(s)) { return null; }
 
-	//3) Remove trailing ; and tri again
-	s = s.slice(0,-1).trim();
-	if(!s) {return null;}
+  // Strip storage/cv qualifiers
+  s = s.replace(/\b(static|mutable|volatile|inline|explicit)\b\s*/g, '').trim();
 
-	//4) Collapse multiple spaces to single spaces
-	s = s.replace(/\s/g, ' ');
+  // Remove initializer:  int x = 5  →  int x
+  s = s.replace(/\s*=\s*[^=].*$/, '').trim();
 
-	//5) Fast skip things we don't support yet
-	// FOR NOW : Templates, pointers, references, etc.
-	if(s.includes('<') || s.includes('>') || s.includes('*') || s.includes('&')) {return null;}
+  // Normalize pointer asterisk so it sticks to the type, not the name:
+  //   "int *ptr"  →  "int* ptr"
+  //   "Foo * bar" →  "Foo* bar"
+  s = s.replace(/(\w)\s*\*\s*([A-Za-z_])/, '$1* $2');
 
-	// 6) Splitting into tokens
-	const parts = s.split(' ');
-	if(parts.length < 2) {return null;}
+  // Extract the variable name — last valid C++ identifier in the string
+  const nameMatch = /([A-Za-z_]\w*)\s*$/.exec(s);
+  if (!nameMatch) { return null; }
+  const name = nameMatch[1];
 
-	// 7) Var is the last token
-	const name = parts[parts.length - 1].trim();
+  // Everything before the name is the type
+  let typeStr = s.slice(0, nameMatch.index).trim();
+  if (!typeStr) { return null; }
 
-	// 8) Type is everything before the last token
-	const typeStr = parts.slice(0,-1).join(' ').trim();
+  // Validate template angle brackets are balanced
+  let depth = 0;
+  for (const ch of typeStr) {
+    if (ch === '<') { depth++; }
+    if (ch === '>') { depth--; }
+    if (depth < 0)  { return null; }
+  }
+  if (depth !== 0) { return null; }
 
-	// 9) Validate supported tyoe
-	if(!SUPPORTED_TYPES.includes(typeStr as SupportedType)) {return null;}
+  // Type must start with a valid identifier or :: (e.g. ::std::string)
+  if (!/^[A-Za-z_:]/.test(typeStr)) { return null; }
+  // Variable name must be a valid identifier
+  if (!/^[A-Za-z_]\w*$/.test(name)) { return null; }
 
-	// 10) Validate variable name (simple identifier check)
-	if (!/^[A-Za-z_]\w*$/.test(name)) {return null;}
-
-	return {type: typeStr as SupportedType, name};
-
+  return { rawType: typeStr, name, category: classifyType(typeStr) };
 }
 
-// changes and makes the first letter capitalized
-function capitalizeFirst(s: string) : string{
-	if(!s) {return s;}
-	return s[0].toUpperCase() +s.slice(1);
+// ---------------------------------------------------------------------------
+// Getter / Setter naming
+// ---------------------------------------------------------------------------
+
+function capitalizeFirst(s: string): string {
+  return s ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
-// bool getterName
-function  isBoolGetterName(varName: string): boolean{
-	return varName.startsWith('is') || varName.startsWith('has');
+function isBoolGetterName(varName: string): boolean {
+  return varName.startsWith('is') || varName.startsWith('has');
 }
 
-function getterName(type :string, varName: string) : string {
-	if(type === 'bool' && isBoolGetterName(varName)){
-		return varName;
-	}
-	return `get${capitalizeFirst(varName)}`;
+function getterName(rawType: string, varName: string): string {
+  if (rawType === 'bool' && isBoolGetterName(varName)) { return varName; }
+  return `get${capitalizeFirst(varName)}`;
 }
 
-function setterName(varName: string) : string{
-	return `set${capitalizeFirst(varName)}`;
+function setterName(varName: string): string {
+  return `set${capitalizeFirst(varName)}`;
 }
 
-function getterReturnType(type:string): string{
-	if(type === 'std::string') {return 'const std::string&';}
-	return type;
+function getterReturnType(rawType: string, category: TypeCategory): string {
+  switch (category) {
+    case 'primitive': return rawType;
+    case 'string':    return 'const std::string&';
+    case 'pointer':   return rawType;
+    case 'object':    return `const ${rawType}&`;
+  }
 }
 
-function setterParamType(type: string): string{
-	if(type === 'std::string') {return 'const std::string&';}
-	return type;
+function setterParamType(rawType: string, category: TypeCategory): string {
+  switch (category) {
+    case 'primitive': return rawType;
+    case 'string':    return 'const std::string&';
+    case 'pointer':   return rawType;
+    case 'object':    return `const ${rawType}&`;
+  }
 }
 
+// ---------------------------------------------------------------------------
+// Code generation
+// ---------------------------------------------------------------------------
 
 function generateGetterSetterCode(
   className: string,
-  fields: { type: string; name: string }[]
-) {
+  fields: ParsedField[]
+): { hpp: string; cpp: string } {
   const hppLines: string[] = [];
   const cppLines: string[] = [];
 
   for (const f of fields) {
-    const gName = getterName(f.type, f.name);
-    const sName = setterName(f.name);
+    const gName  = getterName(f.rawType, f.name);
+    const sName  = setterName(f.name);
+    const gRet   = getterReturnType(f.rawType, f.category);
+    const sParam = setterParamType(f.rawType, f.category);
 
-    const gRet = getterReturnType(f.type);
-    const sParamType = setterParamType(f.type);
+    // HPP declarations (indented, ready to paste inside a class body)
+    hppLines.push(`  ${gRet} ${gName}() const;`);
+    hppLines.push(`  void ${sName}(${sParam} ${f.name});`);
+    hppLines.push('');
 
-    // --- HPP declarations ---
-    hppLines.push(`${gRet} ${gName}() const;`);
-    hppLines.push(`void ${sName}(${sParamType} ${f.name});`);
-    hppLines.push(''); // spacing
-
-    // --- CPP definitions ---
+    // CPP definitions
     cppLines.push(`${gRet} ${className}::${gName}() const {`);
     cppLines.push(`  return ${f.name};`);
     cppLines.push(`}`);
     cppLines.push('');
-
-    cppLines.push(`void ${className}::${sName}(${sParamType} ${f.name}) {`);
+    cppLines.push(`void ${className}::${sName}(${sParam} ${f.name}) {`);
     cppLines.push(`  this->${f.name} = ${f.name};`);
     cppLines.push(`}`);
     cppLines.push('');
@@ -156,6 +186,73 @@ function generateGetterSetterCode(
     cpp: cppLines.join('\n').trimEnd(),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Direct file insertion
+// ---------------------------------------------------------------------------
+
+/**
+ * Looks for a paired .cpp / .cc / .cxx file next to the given .hpp path.
+ * Falls back to a workspace-wide search, and a QuickPick if multiple match.
+ */
+async function findPairedCppFile(hppPath: string): Promise<vscode.Uri | null> {
+  const dir  = path.dirname(hppPath);
+  const base = path.basename(hppPath, path.extname(hppPath));
+
+  for (const ext of ['.cpp', '.cc', '.cxx']) {
+    const uri = vscode.Uri.file(path.join(dir, base + ext));
+    try {
+      await vscode.workspace.fs.stat(uri);
+      return uri;
+    } catch { /* not found */ }
+  }
+
+  // Workspace-wide fallback
+  const found = await vscode.workspace.findFiles(
+    `**/${base}.{cpp,cc,cxx}`, '**/node_modules/**', 5
+  );
+  if (found.length === 1) { return found[0]; }
+  if (found.length > 1) {
+    const items = found.map(u => ({
+      label: vscode.workspace.asRelativePath(u),
+      uri: u,
+    }));
+    const picked = await vscode.window.showQuickPick(items, {
+      placeHolder: 'Multiple .cpp files found — pick the one to insert into',
+    });
+    return picked?.uri ?? null;
+  }
+  return null;
+}
+
+/** Inserts HPP declarations right after the last selected line. */
+async function insertIntoHpp(
+  editor: vscode.TextEditor,
+  selection: vscode.Selection,
+  hppCode: string
+): Promise<void> {
+  const insertPos = new vscode.Position(selection.end.line + 1, 0);
+  const snippet   = `\n  // --- Getters & Setters (auto-generated) ---\n${hppCode}\n`;
+  await editor.edit(eb => eb.insert(insertPos, snippet));
+}
+
+/** Opens the .cpp file and appends definitions at the end. */
+async function insertIntoCpp(
+  cppUri: vscode.Uri,
+  cppCode: string,
+  className: string
+): Promise<void> {
+  const doc    = await vscode.workspace.openTextDocument(cppUri);
+  const editor = await vscode.window.showTextDocument(doc, { preview: false });
+  const last   = doc.lineCount - 1;
+  const endPos = new vscode.Position(last, doc.lineAt(last).text.length);
+  const snippet = `\n// --- ${className} Getters & Setters (auto-generated) ---\n${cppCode}\n`;
+  await editor.edit(eb => eb.insert(endPos, snippet));
+}
+
+// ---------------------------------------------------------------------------
+// Extension entry point
+// ---------------------------------------------------------------------------
 
 export function activate(context: vscode.ExtensionContext) {
   const disposable = vscode.commands.registerCommand(
@@ -170,68 +267,81 @@ export function activate(context: vscode.ExtensionContext) {
       const selection = editor.selection;
       if (selection.isEmpty) {
         vscode.window.showErrorMessage(
-          'Please select class member variable in the header file'
+          'Please select one or more member variable lines.'
         );
         return;
       }
 
-      const selectedText = editor.document.getText(selection);
-      const lines = selectedText.split(/\r?\n/);
-
-      const fields = lines
+      // Parse selected lines
+      const fields = editor.document
+        .getText(selection)
+        .split(/\r?\n/)
         .map(parseFieldLine)
         .filter((x): x is ParsedField => x !== null);
 
       if (fields.length === 0) {
         vscode.window.showErrorMessage(
-          'No supported fields found (int/double/bool/std::string).'
+          'No supported fields found. Select C++ member variable declarations (e.g. "int health;", "std::vector<int> items;").'
         );
         return;
       }
 
-      // --- Class name detection ---
-      // Scan backwards from the first selected line to find the enclosing class.
-      let className = detectClassName(
-        editor.document,
-        selection.start.line
-      );
 
-      if (!className) {
-        // Fallback: ask the user if we couldn't detect it automatically.
-        const input = await vscode.window.showInputBox({
-          prompt: 'Could not detect class name. Enter it manually:',
-          placeHolder: 'MyClass',
-          validateInput: (val) =>
-            /^[A-Za-z_]\w*$/.test(val.trim())
-              ? null
-              : 'Please enter a valid C++ identifier.',
-        });
-
-        if (!input) {
-          // User cancelled the input box — abort silently.
-          return;
-        }
-        className = input.trim();
-      }
 
       const code = generateGetterSetterCode(className, fields);
 
-      console.log('--- HPP DECLARATIONS ---\n' + code.hpp);
-      console.log('--- CPP DEFINITIONS ---\n' + code.cpp);
+      // Let the user choose: insert into files or open preview tab
+      const choice = await vscode.window.showQuickPick(
+        [
+          {
+            label: '$(file-code)  Insert into files',
+            description: 'Adds declarations here and definitions to the paired .cpp',
+            value: 'insert',
+          },
+          {
+            label: '$(open-preview)  Preview in new tab',
+            description: 'Shows generated code in a read-only tab — copy manually',
+            value: 'preview',
+          },
+        ],
+        { placeHolder: 'How do you want to use the generated code?' }
+      );
 
-      const doc = await vscode.workspace.openTextDocument({
-        content: `// ===== ${className}.hpp =====
-${code.hpp}
+      if (!choice) { return; }
 
-// ===== ${className}.cpp =====
-${code.cpp}
-`,
-        language: 'cpp',
-      });
+      if (choice.value === 'insert') {
+        // 1. Insert declarations into the current .hpp file
+        await insertIntoHpp(editor, selection, code.hpp);
 
-      await vscode.window.showTextDocument(doc, { preview: false });
-	  console.log('Generating code for: ', className, fields);
+        // 2. Find and insert definitions into the paired .cpp
+        const filePath = editor.document.uri.fsPath;
+        const cppUri   = await findPairedCppFile(filePath);
 
+        if (cppUri) {
+          await insertIntoCpp(cppUri, code.cpp, className);
+          vscode.window.showInformationMessage(
+            `✅ Inserted into ${path.basename(filePath)} and ${path.basename(cppUri.fsPath)}`
+          );
+        } else {
+          vscode.window.showWarningMessage(
+            'No paired .cpp file found. Declarations inserted into .hpp — showing .cpp definitions in preview.'
+          );
+          const doc = await vscode.workspace.openTextDocument({
+            content: `// ===== ${className}.cpp =====\n${code.cpp}\n`,
+            language: 'cpp',
+          });
+          await vscode.window.showTextDocument(doc, { preview: false });
+        }
+      } else {
+        // Preview tab (original behaviour)
+        const doc = await vscode.workspace.openTextDocument({
+          content:
+            `// ===== ${className}.hpp =====\n${code.hpp}\n\n` +
+            `// ===== ${className}.cpp =====\n${code.cpp}\n`,
+          language: 'cpp',
+        });
+        await vscode.window.showTextDocument(doc, { preview: false });
+      }
     }
   );
 
@@ -239,5 +349,3 @@ ${code.cpp}
 }
 
 export function deactivate() {}
-
-
