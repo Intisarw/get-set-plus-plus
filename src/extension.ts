@@ -1,26 +1,23 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
+main
 
 // ---------------------------------------------------------------------------
 // Class name detection
 // ---------------------------------------------------------------------------
 
 /**
- * Scans backwards from `fromLine` looking for a C++ class declaration.
- * Handles: class Foo {, class Foo : public Bar {, class Foo final { etc.
+
  */
 function detectClassName(
   document: vscode.TextDocument,
   fromLine: number
 ): string | null {
+
   const classPattern =
     /\bclass\s+([A-Za-z_]\w*)(?:\s+final)?\s*(?::\s*[\w\s,:<>*&]+?)?\s*\{?\s*$/;
 
   for (let i = fromLine; i >= 0; i--) {
-    const match = classPattern.exec(document.lineAt(i).text);
-    if (match) { return match[1]; }
-  }
-  return null;
+
 }
 
 // ---------------------------------------------------------------------------
@@ -289,20 +286,7 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      // Detect class name
-      let className = detectClassName(editor.document, selection.start.line);
-      if (!className) {
-        const input = await vscode.window.showInputBox({
-          prompt: 'Could not detect class name. Enter it manually:',
-          placeHolder: 'MyClass',
-          validateInput: val =>
-            /^[A-Za-z_]\w*$/.test(val.trim())
-              ? null
-              : 'Enter a valid C++ identifier.',
-        });
-        if (!input) { return; }
-        className = input.trim();
-      }
+
 
       const code = generateGetterSetterCode(className, fields);
 
