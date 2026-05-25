@@ -1,5 +1,40 @@
 import * as vscode from 'vscode';
 
+// ---------------------------------------------------------------------------
+// Class name detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Scans backwards from `fromLine` in the document looking for a C++ class
+ * declaration that encloses the user's selection.
+ *
+ * Handles all common forms:
+ *   class Foo {
+ *   class Foo : public Bar {
+ *   class Foo final : public Bar, private Baz {
+ *   class Foo        ← opening brace on the next line
+ *
+ * Returns the class name string, or null if none is found.
+ */
+function detectClassName(
+  document: vscode.TextDocument,
+  fromLine: number
+): string | null {
+  // Matches: class <Name> [final] [: ...] [{]
+  // Group 1 captures the class name identifier.
+  const classPattern =
+    /\bclass\s+([A-Za-z_]\w*)(?:\s+final)?\s*(?::\s*[\w\s,:<>*&]+?)?\s*\{?\s*$/;
+
+  for (let i = fromLine; i >= 0; i--) {
+    const lineText = document.lineAt(i).text;
+    const match = classPattern.exec(lineText);
+    if (match) {
+      return match[1];
+    }
+  }
+  return null;
+}
+
 type SupportedType = 'int' | 'double' | 'bool' | 'std::string';
 
 type ParsedField = {
@@ -154,7 +189,31 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      const className = 'Restaurant'; // temporary hardcode
+      // --- Class name detection ---
+      // Scan backwards from the first selected line to find the enclosing class.
+      let className = detectClassName(
+        editor.document,
+        selection.start.line
+      );
+
+      if (!className) {
+        // Fallback: ask the user if we couldn't detect it automatically.
+        const input = await vscode.window.showInputBox({
+          prompt: 'Could not detect class name. Enter it manually:',
+          placeHolder: 'MyClass',
+          validateInput: (val) =>
+            /^[A-Za-z_]\w*$/.test(val.trim())
+              ? null
+              : 'Please enter a valid C++ identifier.',
+        });
+
+        if (!input) {
+          // User cancelled the input box — abort silently.
+          return;
+        }
+        className = input.trim();
+      }
+
       const code = generateGetterSetterCode(className, fields);
 
       console.log('--- HPP DECLARATIONS ---\n' + code.hpp);
