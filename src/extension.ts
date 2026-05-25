@@ -24,7 +24,7 @@ function detectClassName(
 }
 
 // ---------------------------------------------------------------------------
-// Type system  — expanded to support templates, pointers, custom types
+// Type system — expanded to support templates, pointers, custom types
 // ---------------------------------------------------------------------------
 
 /**
@@ -60,7 +60,7 @@ function classifyType(typeStr: string): TypeCategory {
 
 /**
  * Parses a single C++ member variable declaration line.
- * Now handles: templates, pointers, custom types, multi-word primitives.
+ * Handles: templates, pointers, custom types, multi-word primitives.
  * Skips: const members, static members, lines that aren't declarations.
  */
 function parseFieldLine(line: string): ParsedField | null {
