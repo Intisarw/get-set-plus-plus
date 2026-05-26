@@ -1,23 +1,47 @@
 {
   "name": "get-set-plus-plus",
-  "displayName": "get-set-plus-plus",
-  "description": "Generate C++ getters and setters across, s hpp and .cpp files",
-  "version": "0.0.1",
+  "displayName": "Get Set ++",
+  "description": "Instantly generate C++ getters and setters across .hpp and .cpp files. Auto-detects your class name, supports templates, pointers, const members, and inserts code directly into your files.",
+  "version": "0.3.0",
+  "publisher": "IntisarWaheed",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Intisarw/get-set-plus-plus"
+  },
   "engines": {
     "vscode": "^1.107.0"
   },
   "categories": [
+    "Programming Languages",
+    "Snippets",
     "Other"
   ],
-  "activationEvents": [
-    "onCommand: get-set-plus-plus.Generate"
+  "keywords": [
+    "C++",
+    "cpp",
+    "getter",
+    "setter",
+    "code generation",
+    "hpp",
+    "productivity"
   ],
+  "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
         "command": "get-set-plus-plus.Generate",
-        "title": "Get-Set-Plus-Plus: Generate Getters and Setters"
+        "title": "Get Set ++: Generate Getters and Setters",
+        "category": "Get Set ++"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "get-set-plus-plus.Generate",
+        "key": "ctrl+shift+g",
+        "mac": "cmd+shift+g",
+        "when": "editorTextFocus"
       }
     ]
   },
@@ -30,13 +54,13 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.107.0",
     "@types/mocha": "^10.0.10",
-    "@types/node": "22.x",
-    "typescript-eslint": "^8.48.1",
+    "@types/node": "^22.19.19",
+    "@types/vscode": "^1.107.0",
+    "@vscode/test-cli": "^0.0.11",
+    "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.39.1",
     "typescript": "^5.9.3",
-    "@vscode/test-cli": "^0.0.12",
-    "@vscode/test-electron": "^2.5.2"
+    "typescript-eslint": "^8.48.1"
   }
 }

@@ -6,4 +6,37 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
-- Initial release
+## [0.3.0] - 2026-05-25
+
+### Added
+- **const member support** — `const int maxHp;` now generates a getter only (no setter), which is correct C++ behavior
+- **Duplicate detection** — before inserting, scans the document for existing getter/setter names and skips any that already exist, with a warning message listing what was skipped
+- **Extension icon** — 128x128 PNG marketplace icon
+- **Keybinding** — `Cmd+Shift+G` (Mac) / `Ctrl+Shift+G` (Windows/Linux)
+
+### Changed
+- `package.json` — proper publisher, description, categories, keywords, repository URL; removed boilerplate placeholder settings
+- Version bumped to 0.3.0
+
+## [0.2.0] - 2026-05-25
+
+### Added
+- **Automatic class name detection** — the extension now scans backwards from
+  the selected lines to find the enclosing `class` declaration. Handles all
+  common C++ forms:
+  - `class Foo {`
+  - `class Foo : public Bar {`
+  - `class Foo final : public Bar, private Baz {`
+  - Multi-line declarations where the opening `{` is on the next line.
+- **Manual fallback** — if no class declaration can be found, a VS Code input
+  box prompts the user to enter the class name manually (with identifier
+  validation).
+
+### Removed
+- Hardcoded `"Restaurant"` class name placeholder.
+
+## [0.1.0] - Initial release
+
+- Parses selected C++ member variable lines (`int`, `double`, `bool`, `std::string`)
+- Generates getter & setter declarations (`.hpp`) and definitions (`.cpp`)
+- Displays generated code in a new editor tab
