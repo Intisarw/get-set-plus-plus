@@ -2,7 +2,7 @@
   "name": "get-set-plus-plus",
   "displayName": "Get Set ++",
   "description": "Instantly generate C++ getters and setters across .hpp and .cpp files. Auto-detects your class name, supports templates, pointers, const members, and inserts code directly into your files.",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "publisher": "IntisarWaheed",
   "icon": "icon.png",
   "repository": {

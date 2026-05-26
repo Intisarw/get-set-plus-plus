@@ -10,10 +10,10 @@
 
 # get-set-plus-plus
 
-[![Version](https://img.shields.io/visual-studio-marketplace/v/IntisarWaheed.get-set-plus-plus?label=marketplace)](https://marketplace.visualstudio.com/items?itemName=IntisarWaheed.get-set-plus-plus)
-[![Installs](https://img.shields.io/visual-studio-marketplace/i/IntisarWaheed.get-set-plus-plus)](https://marketplace.visualstudio.com/items?itemName=IntisarWaheed.get-set-plus-plus)
-[![Downloads](https://img.shields.io/visual-studio-marketplace/d/IntisarWaheed.get-set-plus-plus)](https://marketplace.visualstudio.com/items?itemName=IntisarWaheed.get-set-plus-plus)
-[![Rating](https://img.shields.io/visual-studio-marketplace/r/IntisarWaheed.get-set-plus-plus)](https://marketplace.visualstudio.com/items?itemName=IntisarWaheed.get-set-plus-plus&ssr=false#review-details)
+[![Version](https://vsmarketplacebadges.dev/version-short/IntisarWaheed.get-set-plus-plus.svg)](https://marketplace.visualstudio.com/items?itemName=IntisarWaheed.get-set-plus-plus)
+[![Installs](https://vsmarketplacebadges.dev/installs-short/IntisarWaheed.get-set-plus-plus.svg)](https://marketplace.visualstudio.com/items?itemName=IntisarWaheed.get-set-plus-plus)
+[![Downloads](https://vsmarketplacebadges.dev/downloads-short/IntisarWaheed.get-set-plus-plus.svg)](https://marketplace.visualstudio.com/items?itemName=IntisarWaheed.get-set-plus-plus)
+[![Rating](https://vsmarketplacebadges.dev/rating-star/IntisarWaheed.get-set-plus-plus.svg)](https://marketplace.visualstudio.com/items?itemName=IntisarWaheed.get-set-plus-plus&ssr=false#review-details)
 
 A VS Code extension that auto-generates idiomatic C++ getters and setters and inserts them directly into your paired `.hpp` and `.cpp` files. No more boilerplate.
 

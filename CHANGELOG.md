@@ -7,6 +7,19 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 ## [Unreleased]
 
 
+## [0.3.2] - 2026-05-26
+
+### Changed
+- Rewrote README to accurately reflect v0.3.0 features (file insertion,
+  full type support, const handling, duplicate detection, keybinding).
+- Added Marketplace badges via `vsmarketplacebadges.dev`
+  (the shields.io VS Code Marketplace endpoints were retired).
+- Added install instructions and a worked example.
+- Replaced stale "Known Issues" with honest current limitations.
+
+### Fixed
+- Stopped tracking macOS `.DS_Store` files in git.
+
 ## [0.2.0] - 2026-05-25
 
 ### Added
