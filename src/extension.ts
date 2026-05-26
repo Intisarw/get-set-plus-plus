@@ -1,103 +1,62 @@
 import * as vscode from 'vscode';
-
-}
+import * as path from 'path';
+import {
+  ParsedField,
+  parseFieldLine,
+  generateGetterSetterCode,
+  filterDuplicates,
+} from './utils';
 
 // ---------------------------------------------------------------------------
-// Getter / Setter naming
+// Class name detection  (uses VS Code API — stays here)
 // ---------------------------------------------------------------------------
 
-function capitalizeFirst(s: string): string {
-  return s ? s[0].toUpperCase() + s.slice(1) : s;
-}
-
-function isBoolGetterName(varName: string): boolean {
-  return varName.startsWith('is') || varName.startsWith('has');
-}
-
-function getterName(rawType: string, varName: string): string {
-  if (rawType === 'bool' && isBoolGetterName(varName)) { return varName; }
-  return `get${capitalizeFirst(varName)}`;
-}
-
-function setterName(varName: string): string {
-  return `set${capitalizeFirst(varName)}`;
-}
-
-function getterReturnType(rawType: string, category: TypeCategory): string {
-  switch (category) {
-    case 'primitive': return rawType;
-    case 'string':    return 'const std::string&';
-    case 'pointer':   return rawType;
-    case 'object':    return `const ${rawType}&`;
+function detectClassName(
+  document: vscode.TextDocument,
+  fromLine: number
+): string | null {
+  const classPattern =
+    /\bclass\s+([A-Za-z_]\w*)(?:\s+final)?\s*(?::\s*[\w\s,:<>*&]+?)?\s*\{?\s*$/;
+  for (let i = fromLine; i >= 0; i--) {
+    const match = classPattern.exec(document.lineAt(i).text);
+    if (match) { return match[1]; }
   }
-}
-
-function setterParamType(rawType: string, category: TypeCategory): string {
-  switch (category) {
-    case 'primitive': return rawType;
-    case 'string':    return 'const std::string&';
-    case 'pointer':   return rawType;
-    case 'object':    return `const ${rawType}&`;
-  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
-// Code generation
+// Duplicate detection  (uses VS Code API — stays here)
 // ---------------------------------------------------------------------------
 
-function generateGetterSetterCode(
-  className: string,
-  fields: ParsedField[]
-): { hpp: string; cpp: string } {
-  const hppLines: string[] = [];
-  const cppLines: string[] = [];
-
-  for (const f of fields) {
-    const gName  = getterName(f.rawType, f.name);
-
-    cppLines.push(`${gRet} ${className}::${gName}() const {`);
-    cppLines.push(`  return ${f.name};`);
-    cppLines.push(`}`);
-    cppLines.push('');
-
-  }
-
-  return {
-    hpp: hppLines.join('\n').trimEnd(),
-    cpp: cppLines.join('\n').trimEnd(),
-  };
+function existingMethodNames(document: vscode.TextDocument): Set<string> {
+  const names = new Set<string>();
+  const methodPattern = /\b([A-Za-z_]\w*)\s*\(/g;
+  const text = document.getText();
+  let m: RegExpExecArray | null;
+  while ((m = methodPattern.exec(text)) !== null) { names.add(m[1]); }
+  return names;
 }
 
 // ---------------------------------------------------------------------------
-// Direct file insertion
+// File insertion
 // ---------------------------------------------------------------------------
 
-/**
- * Looks for a paired .cpp / .cc / .cxx file next to the given .hpp path.
-
- */
 async function findPairedCppFile(hppPath: string): Promise<vscode.Uri | null> {
   const dir  = path.dirname(hppPath);
   const base = path.basename(hppPath, path.extname(hppPath));
 
   for (const ext of ['.cpp', '.cc', '.cxx']) {
     const uri = vscode.Uri.file(path.join(dir, base + ext));
-    try {
-      await vscode.workspace.fs.stat(uri);
-      return uri;
-    } catch { /* not found */ }
+    try { await vscode.workspace.fs.stat(uri); return uri; }
+    catch { /* not found */ }
   }
-
 
   const found = await vscode.workspace.findFiles(
     `**/${base}.{cpp,cc,cxx}`, '**/node_modules/**', 5
   );
   if (found.length === 1) { return found[0]; }
   if (found.length > 1) {
-    const items = found.map(u => ({
-      label: vscode.workspace.asRelativePath(u),
-      uri: u,
-    }));
+    const items = found.map(u => ({ label: vscode.workspace.asRelativePath(u), uri: u }));
     const picked = await vscode.window.showQuickPick(items, {
       placeHolder: 'Multiple .cpp files found — pick the one to insert into',
     });
@@ -106,7 +65,6 @@ async function findPairedCppFile(hppPath: string): Promise<vscode.Uri | null> {
   return null;
 }
 
-/** Inserts HPP declarations right after the last selected line. */
 async function insertIntoHpp(
   editor: vscode.TextEditor,
   selection: vscode.Selection,
@@ -117,7 +75,6 @@ async function insertIntoHpp(
   await editor.edit(eb => eb.insert(insertPos, snippet));
 }
 
-/** Opens the .cpp file and appends definitions at the end. */
 async function insertIntoCpp(
   cppUri: vscode.Uri,
   cppCode: string,
@@ -147,14 +104,11 @@ export function activate(context: vscode.ExtensionContext) {
 
       const selection = editor.selection;
       if (selection.isEmpty) {
-        vscode.window.showErrorMessage(
-          'Please select one or more member variable lines.'
-        );
+        vscode.window.showErrorMessage('Please select one or more member variable lines.');
         return;
       }
 
-      // Parse selected lines
-
+      const allFields = editor.document
         .getText(selection)
         .split(/\r?\n/)
         .map(parseFieldLine)
@@ -162,11 +116,40 @@ export function activate(context: vscode.ExtensionContext) {
 
       if (allFields.length === 0) {
         vscode.window.showErrorMessage(
-
+          'No supported fields found. Select C++ member variable declarations ' +
+          '(e.g. "int health;", "std::vector<int> items;", "const int maxHp;").'
         );
         return;
       }
 
+      const existing = existingMethodNames(editor.document);
+      const { toGenerate, skipped } = filterDuplicates(allFields, existing);
+
+      if (skipped.length > 0) {
+        vscode.window.showWarningMessage(
+          `Skipped ${skipped.length} field(s) — getter/setter already exists: ${skipped.join(', ')}`
+        );
+      }
+      if (toGenerate.length === 0) {
+        vscode.window.showInformationMessage(
+          'All selected fields already have getters/setters — nothing to generate.'
+        );
+        return;
+      }
+
+      let className = detectClassName(editor.document, selection.start.line);
+      if (!className) {
+        const input = await vscode.window.showInputBox({
+          prompt: 'Could not detect class name. Enter it manually:',
+          placeHolder: 'MyClass',
+          validateInput: val =>
+            /^[A-Za-z_]\w*$/.test(val.trim()) ? null : 'Enter a valid C++ identifier.',
+        });
+        if (!input) { return; }
+        className = input.trim();
+      }
+
+      const code = generateGetterSetterCode(className, toGenerate);
 
       const choice = await vscode.window.showQuickPick(
         [
@@ -187,10 +170,9 @@ export function activate(context: vscode.ExtensionContext) {
       if (!choice) { return; }
 
       if (choice.value === 'insert') {
-
+        await insertIntoHpp(editor, selection, code.hpp);
         const filePath = editor.document.uri.fsPath;
         const cppUri   = await findPairedCppFile(filePath);
-
         if (cppUri) {
           await insertIntoCpp(cppUri, code.cpp, className);
           vscode.window.showInformationMessage(
@@ -207,7 +189,6 @@ export function activate(context: vscode.ExtensionContext) {
           await vscode.window.showTextDocument(doc, { preview: false });
         }
       } else {
-
         const doc = await vscode.workspace.openTextDocument({
           content:
             `// ===== ${className}.hpp =====\n${code.hpp}\n\n` +
