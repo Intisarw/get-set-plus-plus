@@ -2,10 +2,10 @@
 .vscode-test/**
 src/**
 .gitignore
-.yarnrc
-vsc-extension-quickstart.md
-**/tsconfig.json
-**/eslint.config.mjs
+.DS_Store
+eslint.config.mjs
+tsconfig.json
 **/*.map
 **/*.ts
-**/.vscode-test.*
+!out/**
+node_modules/**
