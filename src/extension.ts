@@ -1,161 +1,5 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 
-// ---------------------------------------------------------------------------
-// Class name detection
-// ---------------------------------------------------------------------------
-
-/**
- * Scans backwards from `fromLine` looking for a C++ class declaration.
- * Handles: class Foo {, class Foo : public Bar {, class Foo final { etc.
- */
-function detectClassName(
-  document: vscode.TextDocument,
-  fromLine: number
-): string | null {
-  const classPattern =
-    /\bclass\s+([A-Za-z_]\w*)(?:\s+final)?\s*(?::\s*[\w\s,:<>*&]+?)?\s*\{?\s*$/;
-
-  for (let i = fromLine; i >= 0; i--) {
-    const match = classPattern.exec(document.lineAt(i).text);
-    if (match) { return match[1]; }
-  }
-  return null;
-}
-
-// ---------------------------------------------------------------------------
-// Type system
-// ---------------------------------------------------------------------------
-
-/**
- *  primitive → by value          (int, double, bool, ...)
- *  string    → const std::string&
- *  pointer   → raw pointer        (Foo*, int*)
- *  object    → const T&           (std::vector<T>, custom classes, ...)
- */
-type TypeCategory = 'primitive' | 'string' | 'object' | 'pointer';
-
-type ParsedField = {
-  rawType:  string;
-  name:     string;
-  category: TypeCategory;
-  isConst:  boolean;   // true → generate getter only, no setter
-};
-
-const PRIMITIVE_TYPES = new Set([
-  'int', 'double', 'float', 'char', 'bool', 'long', 'short',
-  'size_t', 'ptrdiff_t',
-  'uint8_t', 'uint16_t', 'uint32_t', 'uint64_t',
-  'int8_t',  'int16_t',  'int32_t',  'int64_t',
-  'unsigned int', 'unsigned long', 'unsigned char', 'unsigned short',
-  'long long', 'unsigned long long', 'long double',
-]);
-
-function classifyType(typeStr: string): TypeCategory {
-  if (typeStr.endsWith('*'))                              { return 'pointer';   }
-  if (typeStr === 'std::string' || typeStr === 'string') { return 'string';    }
-  if (PRIMITIVE_TYPES.has(typeStr))                      { return 'primitive'; }
-  return 'object';
-}
-
-/**
- * Parses a single C++ member variable declaration line.
- * Handles: templates, pointers, custom types, multi-word primitives, const members.
- */
-function parseFieldLine(line: string): ParsedField | null {
-  let s = line.trim();
-  if (!s || !s.endsWith(';')) { return null; }
-  s = s.slice(0, -1).trim();
-  if (!s) { return null; }
-
-  // Strip access specifiers
-  s = s.replace(/^(public|protected|private)\s*:\s*/, '');
-
-  // Detect and strip leading const (const member → getter only)
-  const isConst = /^\s*const\b/.test(s);
-  if (isConst) {
-    s = s.replace(/^\s*const\s+/, '').trim();
-  }
-
-  // Strip storage/cv qualifiers
-  s = s.replace(/\b(static|mutable|volatile|inline|explicit)\b\s*/g, '').trim();
-
-  // Remove initializer:  int x = 5  →  int x
-  s = s.replace(/\s*=\s*[^=].*$/, '').trim();
-
-  // Normalize pointer asterisk: "int *ptr" → "int* ptr"
-  s = s.replace(/(\w)\s*\*\s*([A-Za-z_])/, '$1* $2');
-
-  // Extract variable name — last valid C++ identifier
-  const nameMatch = /([A-Za-z_]\w*)\s*$/.exec(s);
-  if (!nameMatch) { return null; }
-  const name = nameMatch[1];
-
-  let typeStr = s.slice(0, nameMatch.index).trim();
-  if (!typeStr) { return null; }
-
-  // Validate balanced template brackets
-  let depth = 0;
-  for (const ch of typeStr) {
-    if (ch === '<') { depth++; }
-    if (ch === '>') { depth--; }
-    if (depth < 0)  { return null; }
-  }
-  if (depth !== 0) { return null; }
-
-  if (!/^[A-Za-z_:]/.test(typeStr))  { return null; }
-  if (!/^[A-Za-z_]\w*$/.test(name))  { return null; }
-
-  return { rawType: typeStr, name, category: classifyType(typeStr), isConst };
-}
-
-// ---------------------------------------------------------------------------
-// Duplicate detection — skip fields whose getter/setter already exist
-// ---------------------------------------------------------------------------
-
-/**
- * Returns a set of all method names already defined in the document.
- * Used to avoid generating duplicates.
- */
-function existingMethodNames(document: vscode.TextDocument): Set<string> {
-  const names = new Set<string>();
-  // Match: anything that looks like a method definition or declaration
-  // e.g.  "int getFoo()" or "void setFoo("  anywhere in the file
-  const methodPattern = /\b([A-Za-z_]\w*)\s*\(/g;
-  const text = document.getText();
-  let m: RegExpExecArray | null;
-  while ((m = methodPattern.exec(text)) !== null) {
-    names.add(m[1]);
-  }
-  return names;
-}
-
-/**
- * Filters out fields whose getter (and setter, if applicable) already exist.
- * Reports skipped fields to the user via a warning message.
- */
-function filterDuplicates(
-  fields: ParsedField[],
-  existing: Set<string>
-): { toGenerate: ParsedField[]; skipped: string[] } {
-  const toGenerate: ParsedField[] = [];
-  const skipped: string[] = [];
-
-  for (const f of fields) {
-    const gName = getterName(f.rawType, f.name);
-    const sName = setterName(f.name);
-
-    const getterExists = existing.has(gName);
-    const setterExists = !f.isConst && existing.has(sName);
-
-    if (getterExists || setterExists) {
-      skipped.push(f.name);
-    } else {
-      toGenerate.push(f);
-    }
-  }
-
-  return { toGenerate, skipped };
 }
 
 // ---------------------------------------------------------------------------
@@ -210,30 +54,12 @@ function generateGetterSetterCode(
 
   for (const f of fields) {
     const gName  = getterName(f.rawType, f.name);
-    const gRet   = getterReturnType(f.rawType, f.category);
-
-    // --- Getter ---
-    hppLines.push(`  ${gRet} ${gName}() const;`);
 
     cppLines.push(`${gRet} ${className}::${gName}() const {`);
     cppLines.push(`  return ${f.name};`);
     cppLines.push(`}`);
     cppLines.push('');
 
-    // --- Setter (skipped for const members) ---
-    if (!f.isConst) {
-      const sName  = setterName(f.name);
-      const sParam = setterParamType(f.rawType, f.category);
-
-      hppLines.push(`  void ${sName}(${sParam} ${f.name});`);
-
-      cppLines.push(`void ${className}::${sName}(${sParam} ${f.name}) {`);
-      cppLines.push(`  this->${f.name} = ${f.name};`);
-      cppLines.push(`}`);
-      cppLines.push('');
-    }
-
-    hppLines.push('');
   }
 
   return {
@@ -248,7 +74,7 @@ function generateGetterSetterCode(
 
 /**
  * Looks for a paired .cpp / .cc / .cxx file next to the given .hpp path.
- * Falls back to workspace-wide search, then a QuickPick if multiple match.
+
  */
 async function findPairedCppFile(hppPath: string): Promise<vscode.Uri | null> {
   const dir  = path.dirname(hppPath);
@@ -261,6 +87,7 @@ async function findPairedCppFile(hppPath: string): Promise<vscode.Uri | null> {
       return uri;
     } catch { /* not found */ }
   }
+
 
   const found = await vscode.workspace.findFiles(
     `**/${base}.{cpp,cc,cxx}`, '**/node_modules/**', 5
@@ -327,7 +154,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       // Parse selected lines
-      const allFields = editor.document
+
         .getText(selection)
         .split(/\r?\n/)
         .map(parseFieldLine)
@@ -335,47 +162,12 @@ export function activate(context: vscode.ExtensionContext) {
 
       if (allFields.length === 0) {
         vscode.window.showErrorMessage(
-          'No supported fields found. Select C++ member variable declarations ' +
-          '(e.g. "int health;", "std::vector<int> items;", "const int maxHp;").'
+
         );
         return;
       }
 
-      // Filter out fields that already have getters/setters
-      const existing = existingMethodNames(editor.document);
-      const { toGenerate, skipped } = filterDuplicates(allFields, existing);
 
-      if (skipped.length > 0) {
-        vscode.window.showWarningMessage(
-          `Skipped ${skipped.length} field(s) — getter/setter already exists: ${skipped.join(', ')}`
-        );
-      }
-
-      if (toGenerate.length === 0) {
-        vscode.window.showInformationMessage(
-          'All selected fields already have getters/setters — nothing to generate.'
-        );
-        return;
-      }
-
-      // Detect class name
-      let className = detectClassName(editor.document, selection.start.line);
-      if (!className) {
-        const input = await vscode.window.showInputBox({
-          prompt: 'Could not detect class name. Enter it manually:',
-          placeHolder: 'MyClass',
-          validateInput: val =>
-            /^[A-Za-z_]\w*$/.test(val.trim())
-              ? null
-              : 'Enter a valid C++ identifier.',
-        });
-        if (!input) { return; }
-        className = input.trim();
-      }
-
-      const code = generateGetterSetterCode(className, toGenerate);
-
-      // Let the user choose: insert into files or preview tab
       const choice = await vscode.window.showQuickPick(
         [
           {
@@ -395,7 +187,6 @@ export function activate(context: vscode.ExtensionContext) {
       if (!choice) { return; }
 
       if (choice.value === 'insert') {
-        await insertIntoHpp(editor, selection, code.hpp);
 
         const filePath = editor.document.uri.fsPath;
         const cppUri   = await findPairedCppFile(filePath);
@@ -416,6 +207,7 @@ export function activate(context: vscode.ExtensionContext) {
           await vscode.window.showTextDocument(doc, { preview: false });
         }
       } else {
+
         const doc = await vscode.workspace.openTextDocument({
           content:
             `// ===== ${className}.hpp =====\n${code.hpp}\n\n` +

@@ -6,17 +6,6 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-05-25
-
-### Added
-- **const member support** — `const int maxHp;` now generates a getter only (no setter), which is correct C++ behavior
-- **Duplicate detection** — before inserting, scans the document for existing getter/setter names and skips any that already exist, with a warning message listing what was skipped
-- **Extension icon** — 128x128 PNG marketplace icon
-- **Keybinding** — `Cmd+Shift+G` (Mac) / `Ctrl+Shift+G` (Windows/Linux)
-
-### Changed
-- `package.json` — proper publisher, description, categories, keywords, repository URL; removed boilerplate placeholder settings
-- Version bumped to 0.3.0
 
 ## [0.2.0] - 2026-05-25
 
