@@ -5,7 +5,9 @@ src/**
 .DS_Store
 eslint.config.mjs
 tsconfig.json
+vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 !out/**
+out/test/**
 node_modules/**
